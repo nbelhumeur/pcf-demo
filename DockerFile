@@ -1,0 +1,81 @@
+FROM ubuntu:latest as builder
+
+RUN apt-get update
+RUN apt-get install -y wget gnupg2 git unzip
+
+#Install Java 8
+RUN apt-get install -y openjdk-8-jdk
+RUN java -version
+
+#Install cf cli
+RUN wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
+RUN echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+RUN apt-get update
+RUN apt-get install -y cf-cli
+
+#Install Gradle
+RUN mkdir -p /tmp
+RUN wget https://services.gradle.org/distributions/gradle-5.0-bin.zip -P /tmp
+RUN unzip -d /opt/gradle /tmp/gradle-*.zip
+RUN ls /opt/gradle/gradle-5.0
+RUN export GRADLE_HOME=/opt/gradle/gradle-5.0
+RUN export PATH=${GRADLE_HOME}/bin:${PATH}
+
+#Build repo for SpringMusic
+RUN mkdir -p /src
+RUN mkdir -p /src/spring-music
+COPY /assets/spring-music /src/spring-music
+WORKDIR /src/spring-music
+RUN ./gradlew clean build
+
+# -----------------------------------------------------
+# -----------------------------------------------------
+FROM ubuntu:latest
+
+RUN apt-get update
+RUN apt-get install -y wget gnupg2 vim
+
+#Install cf cli
+RUN wget -q -O - https://packages.cloudfoundry.org/debian/cli.cloudfoundry.org.key | apt-key add -
+RUN echo "deb https://packages.cloudfoundry.org/debian stable main" | tee /etc/apt/sources.list.d/cloudfoundry-cli.list
+RUN apt-get update
+RUN apt-get install -y cf-cli
+
+RUN mkdir -p /src
+RUN mkdir -p /src/spring-music
+COPY --from=builder /src/spring-music /src/spring-music
+
+ENV SIAB_USERCSS="Normal:+/etc/shellinabox/options-enabled/00+Black-on-White.css,Reverse:-/etc/shellinabox/options-enabled/00_White-On-Black.css;Colors:+/etc/shellinabox/options-enabled/01+Color-Terminal.css,Monochrome:-/etc/shellinabox/options-enabled/01_Monochrome.css" \
+    SIAB_PORT=8080 \
+    SIAB_ADDUSER=true \
+    SIAB_USER=guest \
+    SIAB_USERID=1000 \
+    SIAB_GROUP=guest \
+    SIAB_GROUPID=1000 \
+    SIAB_PASSWORD=putsafepaswordhere \
+    SIAB_SHELL=/bin/bash \
+    SIAB_HOME=/home/guest \
+    SIAB_SUDO=true \
+    SIAB_SSL=false \
+    SIAB_SERVICE=/:LOGIN \
+    SIAB_PKGS=none \
+    SIAB_SCRIPT=none
+
+RUN apt-get update && apt-get install -y openssl curl openssh-client sudo shellinabox && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* && \
+    ln -sf '/etc/shellinabox/options-enabled/00+Black on White.css' \
+      /etc/shellinabox/options-enabled/00+Black-on-White.css && \
+    ln -sf '/etc/shellinabox/options-enabled/00_White On Black.css' \
+      /etc/shellinabox/options-enabled/00_White-On-Black.css && \
+    ln -sf '/etc/shellinabox/options-enabled/01+Color Terminal.css' \
+      /etc/shellinabox/options-enabled/01+Color-Terminal.css
+
+EXPOSE 8080
+
+VOLUME /etc/shellinabox /var/log/supervisor /home
+
+ADD assets/entrypoint.sh /usr/local/sbin/
+
+ENTRYPOINT ["entrypoint.sh"]
+CMD ["shellinabox"]
